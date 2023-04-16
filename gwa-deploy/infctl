@@ -2,7 +2,7 @@
 """
 Manage all aspects of the creation of infrastructure and app deployment
 """
-from common import execute_cli, execute_sh
+from common import execute_linode_cli, execute_sh
 import logging
 import time
 import base64
@@ -111,4 +111,3 @@ def delete(username: str):
 
 if __name__ == "__main__":
     app()
-    
