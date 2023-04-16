@@ -32,4 +32,4 @@ RUN pip install black
 
 COPY gwa-deploy .
 
-ENTRYPOINT ["python", "deploy"]
+ENTRYPOINT ["python", "infctl"]
