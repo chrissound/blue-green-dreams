@@ -108,6 +108,10 @@ def delete(username: str):
     print(f"Deleting user: {username}")
     return
 
+@app.command()
+def drop(username: str):
+    print(f"Dropping user: {username}")
+
 
 if __name__ == "__main__":
     app()
