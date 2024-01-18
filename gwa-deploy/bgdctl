@@ -3,13 +3,13 @@
 Manage all aspects of the creation of infrastructure and app deployment
 """
 from common import execute_linode_cli, execute_sh
+from kubeconfig import write_kubeconfig, get_kubeconfig
 import switch as switch_module
 import linodeapi
 import subprocess
 import kubectl
 import logging
 import time
-import base64
 import json
 import sys
 import os
@@ -21,29 +21,38 @@ PROJECT_ACRONYM = 'bgd'
 
 app = typer.Typer()
 
-logging.basicConfig(
-    format="%(asctime)s %(levelname)-9s %(funcName)-30s() %(message)s ",
-    level=logging.DEBUG,
-    datefmt="%Y-%m-%d at %H:%M:%S",
-)
 
-KUBERNETES_VERSION = "1.26"
+KUBERNETES_VERSION = "1.28"
 
+def set_logging_level(level_param : str):
 
-@retry(tries=60, delay=60)
-def get_kubeconfig(cluster_id):
-    cmd = [
-        "linode-cli",
-        "lke",
-        "kubeconfig-view",
-        cluster_id,
-    ]
-    json_object = execute_linode_cli(cmd)
-    base_64_kubeconfig = json_object[0]["kubeconfig"]
-    logging.debug(f"kubeconfig base64: {base_64_kubeconfig}")
-    logging.info(f"kubeconfig received OK from cluster {cluster_id}")
-    return base64.b64decode(base_64_kubeconfig).decode("ascii")
+    # Remove any existing handlers
+    for handler in logging.root.handlers[:]:
+        logging.root.removeHandler(handler)
 
+    level_param = level_param.lower()  # Convert to lowercase for case-insensitivity
+
+    match level_param:
+        case "debug":
+            logging_level = logging.DEBUG
+        case "info":
+            logging_level = logging.INFO
+        case "warning":
+            logging_level = logging.WARNING
+        case "error":
+            logging_level = logging.ERROR
+        case "critical":
+            logging_level = logging.CRITICAL
+        case _:
+            raise ValueError(f"Invalid log level: {level_param}")
+
+    logging.basicConfig(
+        format="%(asctime)s %(levelname)-9s %(funcName)-30s() %(message)s ",
+        level=logging_level,
+        datefmt="%Y-%m-%d at %H:%M:%S",
+    )
+
+set_logging_level("debug")
 
 def create_cluster(env):
     """Create a Akamai K8S cluster"""
@@ -112,19 +121,6 @@ def delete_cluster_only(cluster_id):
     return
 
 
-def write_kubeconfig(kubeconfig):
-    KUBECONFIG_DIR = os.environ["HOME"] + "/.kube"
-    KUBECONFIG_FILE_PATH = KUBECONFIG_DIR + "/config"
-    try:
-        os.mkdir(KUBECONFIG_DIR)
-    except FileExistsError:
-        pass
-    with open(KUBECONFIG_FILE_PATH, "w") as file:
-        file.write(kubeconfig)
-    logging.info(f"kubernetes config file written: {KUBECONFIG_FILE_PATH}")
-    return
-
-
 def deployment_smoke_test(ingress_ip):
     response_text = wait_for_http_get(ingress_ip)
     logging.debug(f"Response: {response_text}")
@@ -183,16 +179,25 @@ def delete_environment(env: str):
     if cluster_id:
         logging.info(f"Cluster ID in environment {env} found: {cluster_id}")
         delete_cluster_only(cluster_id)
+
     nodebalancer_id = linodeapi.get_nodebalancer_id(PROJECT_ACRONYM, env)
     if nodebalancer_id:
         logging.info(f"nodebalancer ID in environment {env} found: {nodebalancer_id}") 
         delete_nodebalancer(nodebalancer_id)
 
+    switch_resp = switch_module.switch_get(env)
+    if switch_resp != []:
+        switch_id = switch_resp[0]["id"]
+        logging.warning(f"switch ID in environment {env} found (no action taked): {switch_id}") 
+
 #\
 # All cli commands follow:
 #/
 @app.command()
-def deploy(env: str, keep: bool = typer.Option(False, help="Keep the cluster running after deployment and test"), keep_switch: bool = typer.Option(False, help="Keep the switch running after deployment and test")):
+def deploy(env: str, keep: bool = typer.Option(False, help="Keep the cluster running after deployment and test"), keep_switch: bool = typer.Option(False, help="Keep the switch running after deployment and test"), log_level = "debug"
+):
+    set_logging_level(log_level)
+
     """Deploy a kubernetes cluster in the requested environment"""
     delete_environment(env) # Ensure there is no existing environment
     logging.info(f"Creating k8s environment '{env}' with keep={keep}")
@@ -238,23 +243,31 @@ def deploy(env: str, keep: bool = typer.Option(False, help="Keep the cluster run
 
 @app.command()
 def ls(
-    env: str
+    env: str , log_level = "debug"
 ):
+    set_logging_level(log_level)
+
     """List Akamai items associated with this project and env"""
     cluster_id = linodeapi.get_cluster_id(PROJECT_ACRONYM, env)
     logging.info(f"Cluster ID with tag 'env_{env}': {cluster_id}")  
     nodebalancer_id = linodeapi.get_nodebalancer_id(PROJECT_ACRONYM, env)
-    logging.info(f"nodebalancer ID with tag 'env_{env}': {nodebalancer_id}")      
+    logging.info(f"nodebalancer ID with tag 'env_{env}': {nodebalancer_id}")
+    switch_id = switch_module.switch_view(env)
+    logging.info(f"switch id with tag 'env_{env}: {switch_id}")
 
 @app.command()
 def rm(
-    env: str
+    env: str , log_level = "debug"
 ):
+    set_logging_level(log_level)
+
     """Remove all artifacts in the env"""
     delete_environment(env)
 
 @app.command()
-def switch(operation: str, env: str):
+def switch(operation: str, env: str, log_level = "debug"):
+    set_logging_level(log_level)
+
     """Perform all operations related to the front-end nginx switch"""
     match operation:
         case "create": 
@@ -264,5 +277,13 @@ def switch(operation: str, env: str):
         case _:
             raise Exception("invalid switch command")
 
+@app.command()
+def switch_set_ip_target_to_cluster(env: str, target_env: str):
+    switch_module.switch_set_ip_target_to_cluster(env, target_env)
+
+    logging.info(f"nginx switch (env: {env}) succesfully set to target ({target_env})")
+
+
 if __name__ == "__main__":
     app()
+
