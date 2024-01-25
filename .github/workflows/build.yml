@@ -3,6 +3,7 @@ on:
   push:
     branches:
       - master
+      - 'fixDeploy*'
 env:
   LINODE_ROOT_PASSWORD: ${{secrets.LINODE_ROOT_PASSWORD}}
   LINODE_CLI_TOKEN: ${{secrets.LINODE_CLI_TOKEN}} 
@@ -29,10 +30,10 @@ jobs:
         run: make build
       - name: Basic test
         run: make test
-      - name: docker login
-        run: docker login -u $DOCKER_USER -p $DOCKER_PASSWORD 
-      - name: Push image to Dockerhub
-        run: make _push
+      #- name: docker login
+      #  run: docker login -u $DOCKER_USER -p $DOCKER_PASSWORD 
+      #- name: Push image to Dockerhub
+      #  run: make _push
       - name: Final Status
         run: echo "This job's status is ${{ job.status }}."
   test-app:
